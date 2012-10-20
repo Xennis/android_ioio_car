@@ -1,5 +1,7 @@
 package de.xennis.lab.aic.controller;
 
+import java.util.Arrays;
+
 import ioio.lib.api.DigitalOutput;
 import ioio.lib.api.exception.ConnectionLostException;
 import ioio.lib.util.BaseIOIOLooper;
@@ -8,6 +10,7 @@ import ioio.lib.util.android.IOIOActivity;
 import android.hardware.Sensor;
 import android.hardware.SensorManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Menu;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
@@ -24,13 +27,18 @@ public class Main extends IOIOActivity {
 
 	public static final int BAR_MAX = 1000;
 	
-	private SensorListener myEventListener;
+	private SensorListener eventListener;
 	private SensorManager sensorManager;
+	private Sensor accelerometer;
+	
+	/** 0: Forward, 1: Backward, 2: Left, 3: Right */
+	public static boolean[] pinsBoolean;
+
+	// GUI
+	private CheckBox autoPower;
 	private ProgressBar barLeft, barRight, barForward, barBackward;
 	private ToggleButton powerButton;
-	private Sensor accelerometer;
-	private CheckBox autoPower;
-
+	
 	/**
 	 * Called when the activity is first created. Here we normally initialize
 	 * our GUI.
@@ -40,10 +48,23 @@ public class Main extends IOIOActivity {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.main);
 		
-        //View myView = (View) findViewById(R.id.myView);
-        this.myEventListener = new SensorListener(this);
-        
+		// Init
+		pinsBoolean = new boolean[4];
+		Arrays.fill(pinsBoolean, false);
+		
+        this.eventListener = new SensorListener(this);        
         this.sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
+        
+        this.initGuiComponents();
+        
+        this.registerSensorsAllTime();
+
+	}
+
+	/**
+	 * Init gui components
+	 */
+	private void initGuiComponents() {
         this.barLeft = (ProgressBar) findViewById(R.id.barLeft);
         this.barLeft.setMax(BAR_MAX);
         this.barRight = (ProgressBar) findViewById(R.id.barRight);
@@ -69,11 +90,8 @@ public class Main extends IOIOActivity {
     			
     		}
     	});
-        
-        this.registerSensorsAllTime();
-
 	}
-
+	
 	/**
 	 * This is the thread on which all the IOIO activity happens. It will be run
 	 * every time the application is resumed and aborted when it is paused. The
@@ -82,8 +100,15 @@ public class Main extends IOIOActivity {
 	 * be called repetitively until the IOIO gets disconnected.
 	 */
 	class Looper extends BaseIOIOLooper {
-		/** The on-board LED. */
-//		private DigitalOutput led_;
+		
+		/** Move forward */
+		private DigitalOutput outForward_;
+		/** Move backward */
+		private DigitalOutput outBackward_;
+		/** Move left */
+		private DigitalOutput outLeft_;
+		/** Move right */
+		private DigitalOutput outRight_;
 
 		/**
 		 * Called every time a connection with IOIO has been established.
@@ -96,7 +121,10 @@ public class Main extends IOIOActivity {
 		 */
 		@Override
 		protected void setup() throws ConnectionLostException {
-//			led_ = ioio_.openDigitalOutput(0, true);
+			outForward_ = ioio_.openDigitalOutput(41);
+			outBackward_ = ioio_.openDigitalOutput(42);
+			outLeft_ = ioio_.openDigitalOutput(43);
+			outRight_ = ioio_.openDigitalOutput(44);
 		}
 
 		/**
@@ -109,11 +137,14 @@ public class Main extends IOIOActivity {
 		 */
 		@Override
 		public void loop() throws ConnectionLostException {
-/*			led_.write(!button_.isChecked());
+			outForward_.write(Main.pinsBoolean[0]);
+			outBackward_.write(Main.pinsBoolean[1]);
+			outLeft_.write(Main.pinsBoolean[2]);
+			outRight_.write(Main.pinsBoolean[3]);
 			try {
 				Thread.sleep(100);
 			} catch (InterruptedException e) {
-			}*/
+			}
 		}
 	}
 
@@ -136,13 +167,13 @@ public class Main extends IOIOActivity {
     private void registerSensorsAllTime() {
     	Sensor proximity = this.sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY);
     	if(proximity != null) {
-    		this.sensorManager.registerListener(this.myEventListener, proximity, SensorManager.SENSOR_DELAY_GAME);
+    		this.sensorManager.registerListener(this.eventListener, proximity, SensorManager.SENSOR_DELAY_GAME);
     	}
     }
     
     private void registerSensors() {
     	this.accelerometer = this.sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-    	this.sensorManager.registerListener(this.myEventListener, this.accelerometer, SensorManager.SENSOR_DELAY_GAME);
+    	this.sensorManager.registerListener(this.eventListener, this.accelerometer, SensorManager.SENSOR_DELAY_GAME);
     }
     
     protected void setBars(int forward, int backward, int left, int right) {
@@ -150,6 +181,28 @@ public class Main extends IOIOActivity {
     	this.barBackward.setProgress(backward);
     	this.barLeft.setProgress(left);
     	this.barRight.setProgress(right);
+    	
+    	pinsBoolean[0] = convertIntToBoolean(forward);
+    	pinsBoolean[1] = convertIntToBoolean(backward);
+    	pinsBoolean[2] = convertIntToBoolean(left);
+    	pinsBoolean[3] = convertIntToBoolean(right);
+    	
+    	Log.v("setBars", "Pins" + pinsBoolean[0] + pinsBoolean[1] + pinsBoolean[2] + pinsBoolean[3] );
+    }
+    
+	/**
+	 * Convert integer to boolean.
+	 * 
+	 * @param i
+	 *            value
+	 * @return true, if value > 30
+	 */
+    private Boolean convertIntToBoolean(int i) {
+    	if(i > 30) {
+    		return true;
+    	} else {
+    		return false;
+    	}
     }
     
     protected void setPower(boolean power) {
@@ -163,15 +216,15 @@ public class Main extends IOIOActivity {
     }
     
     private void stop() {
+    	this.sensorManager.unregisterListener(this.eventListener, this.accelerometer);
     	this.setBars(0, 0, 0, 0);
     	this.setPower(false);
-    	this.sensorManager.unregisterListener(this.myEventListener, this.accelerometer);
     }
     
     @Override
     protected void onPause() {
+    	this.sensorManager.unregisterListener(this.eventListener);
     	this.stop();
-    	this.sensorManager.unregisterListener(this.myEventListener);
     	super.onPause();
     }
 }
